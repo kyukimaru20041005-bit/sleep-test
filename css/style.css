@@ -1,0 +1,115 @@
+:root {
+  --bg: #0b0d12;
+  --card: #151924;
+  --text: #e6e8ee;
+  --muted: #8b93a7;
+  --accent: #7aa2ff;
+  --warn: #ffb86b;
+  --bad: #ff6b6b;
+  --ok: #5fd18b;
+  --border: #2a3142;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 15px/1.6 -apple-system, BlinkMacSystemFont, "Hiragino Sans", sans-serif;
+  padding: 16px;
+  padding-top: max(16px, env(safe-area-inset-top));
+  padding-bottom: max(16px, env(safe-area-inset-bottom));
+}
+
+h1 { font-size: 20px; margin: 4px 0 12px; }
+h2 { font-size: 16px; margin: 0 0 8px; }
+p.muted, .muted { color: var(--muted); font-size: 13px; }
+
+.card {
+  background: var(--card);
+  border-radius: 12px;
+  padding: 14px;
+  margin-bottom: 12px;
+}
+
+.screen { display: none; }
+.screen.active { display: block; }
+
+fieldset {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  margin: 0 0 12px;
+  padding: 10px 12px;
+}
+legend { padding: 0 6px; color: var(--muted); font-size: 13px; }
+
+label.row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 0;
+}
+label.choice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 0;
+}
+
+input[type=radio], input[type=checkbox] { width: 20px; height: 20px; }
+input[type=number], input[type=time], select {
+  background: #0e1118;
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px;
+  font-size: 15px;
+}
+input[type=range] { width: 140px; }
+
+button {
+  width: 100%;
+  padding: 14px;
+  border: 0;
+  border-radius: 10px;
+  font-size: 16px;
+  font-weight: 600;
+  margin: 6px 0;
+  background: var(--accent);
+  color: #0b0d12;
+}
+button.sub { background: #2a3142; color: var(--text); }
+button.danger { background: var(--bad); color: #fff; }
+
+ul.notes { margin: 8px 0; padding-left: 20px; color: var(--muted); font-size: 13px; }
+
+/* 夜間モード */
+#nightScreen {
+  position: fixed;
+  inset: 0;
+  background: #000;
+  display: none;
+  z-index: 10;
+}
+#nightClock {
+  position: absolute;
+  color: #fff;
+  opacity: .15;
+  font-size: 20px;
+  transition: opacity .5s;
+}
+#nightControls {
+  position: absolute;
+  left: 16px;
+  right: 16px;
+  bottom: max(24px, env(safe-area-inset-bottom));
+  display: none;
+}
+#nightStatus {
+  color: var(--muted);
+  font-size: 13px;
+  text-align: center;
+  margin-bottom: 8px;
+}

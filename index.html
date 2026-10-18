@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="apple-mobile-web-app-title" content="リナイト個人版">
+<meta name="theme-color" content="#000000">
+<title>リナイト個人版</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<!-- 入力画面 -->
+<section id="screenInput" class="screen active">
+  <h1>今夜の入眠サウンド</h1>
+  <p class="muted">ルールに基づいて設定を自動で作ります(AIではありません)。</p>
+
+  <div class="card">
+    <fieldset>
+      <legend>気分</legend>
+      <label class="choice"><input type="radio" name="mood" value="落ち着いている" checked> 落ち着いている</label>
+      <label class="choice"><input type="radio" name="mood" value="不安・考えごと"> 不安・考えごと</label>
+      <label class="choice"><input type="radio" name="mood" value="イライラ"> イライラ</label>
+      <label class="choice"><input type="radio" name="mood" value="疲れている"> 疲れている</label>
+      <label class="choice"><input type="radio" name="mood" value="興奮している"> 興奮している</label>
+    </fieldset>
+
+    <fieldset>
+      <legend>直近2時間の行動(複数選択可)</legend>
+      <label class="choice"><input type="checkbox" name="behavior" value="スマホ・PC"> スマホ・PC</label>
+      <label class="choice"><input type="checkbox" name="behavior" value="運動"> 運動</label>
+      <label class="choice"><input type="checkbox" name="behavior" value="飲酒"> 飲酒</label>
+      <label class="choice"><input type="checkbox" name="behavior" value="カフェイン"> カフェイン</label>
+      <label class="choice"><input type="checkbox" name="behavior" value="入浴"> 入浴</label>
+      <label class="choice"><input type="checkbox" name="behavior" value="食事"> 食事</label>
+      <label class="choice"><input type="checkbox" name="behavior" value="特になし"> 特になし</label>
+    </fieldset>
+
+    <fieldset>
+      <legend>体調</legend>
+      <label class="choice"><input type="radio" name="condition" value="良い" checked> 良い</label>
+      <label class="choice"><input type="radio" name="condition" value="普通"> 普通</label>
+      <label class="choice"><input type="radio" name="condition" value="だるい"> だるい</label>
+      <label class="choice"><input type="radio" name="condition" value="頭痛・不調"> 頭痛・不調</label>
+    </fieldset>
+
+    <label class="row">起床予定時刻 <input type="time" id="plannedWakeTime"></label>
+  </div>
+
+  <div class="card">
+    <label class="row">A/Bテストを有効にする(ビートなしの夜をランダムに混ぜる)
+      <input type="checkbox" id="abTestToggle">
+    </label>
+    <p class="muted">ONの夜は、ビートあり/なしのどちらだったかを朝の評価が終わるまで表示しません(朝の評価画面はPhase 2で実装予定)。</p>
+  </div>
+
+  <button id="toConfirmBtn">次へ(設定を作る)</button>
+  <button class="sub" id="helpBtn">ショートカット連携のヘルプ</button>
+</section>
+
+<!-- 確認・微調整画面 -->
+<section id="screenConfirm" class="screen">
+  <h1>サウンド設定の確認</h1>
+  <div class="card">
+    <h2>この設定になった理由</h2>
+    <ul class="notes" id="settingNotes"></ul>
+  </div>
+
+  <div class="card">
+    <h2>微調整</h2>
+    <label class="row">基準周波数 (Hz) <input type="number" id="s_carrier"></label>
+    <label class="row">うなり 開始 (Hz) <input type="number" id="s_beatStart" step="0.5"></label>
+    <label class="row">うなり 終了 (Hz) <input type="number" id="s_beatEnd" step="0.5"></label>
+    <label class="row">うなりの変化時間 (分) <input type="number" id="s_rampMin"></label>
+    <label class="row">ビートを使う <input type="checkbox" id="s_beatEnabled"></label>
+    <label class="row">ノイズの種類
+      <select id="s_noiseType">
+        <option value="pink">ピンクノイズ</option>
+        <option value="brown">ブラウンノイズ</option>
+        <option value="white">ホワイトノイズ</option>
+      </select>
+    </label>
+    <label class="row">ビート音量 <input type="range" id="s_toneVol" min="0" max="100"></label>
+    <label class="row">ノイズ音量 <input type="range" id="s_noiseVol" min="0" max="100"></label>
+    <label class="row">全体音量 <input type="range" id="s_vol" min="0" max="100"></label>
+    <label class="row">フェードアウト開始 (分, 0=しない) <input type="number" id="s_fadeMin"></label>
+  </div>
+
+  <div class="card">
+    <h2>今から寝た場合の起床時刻の目安</h2>
+    <p class="muted">90分サイクルに基づく目安です(入眠15分+90分×サイクル数)。あくまで目安です。</p>
+    <ul class="notes" id="wakeRecommend"></ul>
+  </div>
+
+  <button id="startNightBtn">おやすみ</button>
+  <button class="sub" id="backToInputBtn">戻る</button>
+</section>
+
+<!-- 起床後の画面 -->
+<section id="screenWake" class="screen">
+  <h1>おはようございます</h1>
+  <div class="card" id="wakeSummary"></div>
+  <p class="muted">朝の評価入力・カレンダー表示はPhase 2で実装予定です。</p>
+  <button id="wakeToInputBtn">閉じる</button>
+</section>
+
+<!-- ヘルプ画面 -->
+<section id="screenHelp" class="screen">
+  <h1>ショートカット連携の設定方法</h1>
+  <div class="card">
+    <p>標準の時計アプリのアラームが止まったときに、自動でこのアプリを開いて起床時刻を記録する設定です。</p>
+    <p class="muted">※ 手順の文言はiOSのバージョンによって多少異なる場合があります。実機で確認してください(未確認)。</p>
+    <ol>
+      <li>「ショートカット」アプリを開く</li>
+      <li>下部の「オートメーション」タブを開く</li>
+      <li>右上の「+」→「個人用オートメーションを作成」</li>
+      <li>一覧から「アラーム」を選び、「停止」を選択して「次へ」</li>
+      <li>アクションを追加:「URLを開く」を選択</li>
+      <li>URLの欄に、下に表示されているアドレスを入力</li>
+      <li>「実行の前に確認」をオフにする(確認なしで自動実行するため)</li>
+      <li>保存する</li>
+    </ol>
+    <p>このアプリのURL(?wake=1付き):</p>
+    <p class="muted" id="wakeUrl" style="word-break:break-all;"></p>
+  </div>
+  <button class="sub" id="helpBackBtn">戻る</button>
+</section>
+
+<!-- 夜間モード(全画面) -->
+<div id="nightScreen">
+  <div id="nightClock"></div>
+  <div id="nightControls">
+    <div id="nightStatus"></div>
+    <button class="danger" id="stopNightBtn">停止して朝の画面へ</button>
+    <button class="sub" id="brightnessBtn">明るさ</button>
+  </div>
+</div>
+
+<script src="js/storage.js"></script>
+<script src="js/rules.js"></script>
+<script src="js/sound.js"></script>
+<script src="js/night.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
