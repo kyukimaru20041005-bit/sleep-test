@@ -80,9 +80,29 @@ function startSound(ctx, settings) {
   const noiseSrc = ctx.createBufferSource();
   noiseSrc.buffer = noiseBuf;
   noiseSrc.loop = true;
+
+  // 耳につく高域の「サー」という質感を抑えるローパスフィルター。仮の値。
+  const noiseFilter = ctx.createBiquadFilter();
+  noiseFilter.type = 'lowpass';
+  noiseFilter.frequency.value = 1200;
+
   const noiseGain = ctx.createGain();
-  noiseGain.gain.value = settings.noiseVol / 100;
-  noiseSrc.connect(noiseGain);
+  const noiseBase = settings.noiseVol / 100;
+  noiseGain.gain.value = noiseBase;
+
+  // 1/fゆらぎの簡易近似: ごくゆっくりしたLFOでノイズ音量にわずかな強弱をつけ、
+  // 一定音量の人工的な雑音感を和らげる。周波数・深さは仮の値。
+  const lfo = ctx.createOscillator();
+  lfo.frequency.value = 0.05 + Math.random() * 0.07; // 約8〜20秒周期
+  const lfoDepth = ctx.createGain();
+  lfoDepth.gain.value = noiseBase * 0.15;
+  lfo.connect(lfoDepth);
+  lfoDepth.connect(noiseGain.gain);
+  lfo.start();
+  oscs.push(lfo);
+
+  noiseSrc.connect(noiseFilter);
+  noiseFilter.connect(noiseGain);
   noiseGain.connect(master);
   noiseSrc.start();
 

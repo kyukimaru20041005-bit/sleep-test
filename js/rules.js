@@ -2,26 +2,30 @@
 // 「AI」ではない。ここに書かれた数値は根拠のある研究値ではなく、すべて仮の値。
 // 実際に使いながら MOOD_RULES / BEHAVIOR_RULES / CONDITION_RULES の数値を調整していく想定。
 
+// 2026-10-18: 実機で聞いた結果「音量が大きすぎる」「ノイズの質感が気になる(耳につくサー音)」
+// とのフィードバックを受け、全体的に音量を下げ、ビートの開始周波数を
+// α波帯域(8〜13Hz、リラックス状態)寄りにして、そこからθ波・δ波(入眠〜睡眠)へ
+// 下げていく設計に変更。ノイズ自体の質感はsound.js側のローパスフィルターで調整する。
 const BASE_SETTINGS = {
   carrier: 200,     // モノーラルビートの基準周波数 (Hz)
-  beatStart: 6,     // うなりの開始周波数 (Hz)
-  beatEnd: 2,       // うなりの終了周波数 (Hz)
+  beatStart: 9,     // うなりの開始周波数 (Hz) = α波帯域
+  beatEnd: 3,       // うなりの終了周波数 (Hz) = θ波〜δ波帯域
   rampMin: 30,      // うなりが beatStart→beatEnd に変化する時間 (分)
   noiseType: 'pink',
-  toneVol: 35,      // ビート音量 (0-100)
-  noiseVol: 50,     // ノイズ音量 (0-100)
-  vol: 60,          // 全体音量 (0-100)
+  toneVol: 20,      // ビート音量 (0-100)
+  noiseVol: 30,     // ノイズ音量 (0-100)
+  vol: 40,          // 全体音量 (0-100)
   fadeMin: 45,      // フェードアウト開始 (分, 0=しない)
   beatEnabled: true,
 };
 
 // 気分: ベースとなる設定を上書きする。選択は1つだけ。
 const MOOD_RULES = {
-  '落ち着いている': { beatStart: 6, beatEnd: 2, rampMin: 20, noiseType: 'pink', toneVol: 35, noiseVol: 45 },
-  '不安・考えごと': { beatStart: 8, beatEnd: 3, rampMin: 35, noiseType: 'brown', toneVol: 30, noiseVol: 55 },
-  'イライラ': { beatStart: 10, beatEnd: 4, rampMin: 30, noiseType: 'pink', toneVol: 25, noiseVol: 60 },
-  '疲れている': { beatStart: 4, beatEnd: 1.5, rampMin: 15, noiseType: 'pink', toneVol: 30, noiseVol: 40 },
-  '興奮している': { beatStart: 10, beatEnd: 2, rampMin: 40, noiseType: 'brown', toneVol: 25, noiseVol: 55 },
+  '落ち着いている': { beatStart: 9, beatEnd: 3, rampMin: 20, noiseType: 'pink', toneVol: 20, noiseVol: 28 },
+  '不安・考えごと': { beatStart: 10, beatEnd: 3, rampMin: 35, noiseType: 'brown', toneVol: 18, noiseVol: 32 },
+  'イライラ': { beatStart: 11, beatEnd: 4, rampMin: 30, noiseType: 'pink', toneVol: 15, noiseVol: 34 },
+  '疲れている': { beatStart: 8, beatEnd: 1.5, rampMin: 15, noiseType: 'pink', toneVol: 18, noiseVol: 25 },
+  '興奮している': { beatStart: 11, beatEnd: 2, rampMin: 40, noiseType: 'brown', toneVol: 15, noiseVol: 32 },
 };
 
 // 直近2時間の行動: 複数選択可。差分(delta)をベースに足し込む。
