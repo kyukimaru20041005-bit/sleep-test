@@ -1,0 +1,369 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="apple-mobile-web-app-title" content="睡眠テスト">
+<meta name="theme-color" content="#000000">
+<title>睡眠テスト</title>
+<style>
+  :root { --bg:#0b0d12; --card:#151924; --text:#e6e8ee; --muted:#8b93a7; --accent:#7aa2ff; --warn:#ffb86b; --bad:#ff6b6b; --ok:#5fd18b; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:15px/1.6 -apple-system,BlinkMacSystemFont,"Hiragino Sans",sans-serif; padding:16px; padding-top:max(16px,env(safe-area-inset-top)); }
+  h1 { font-size:20px; margin:4px 0 12px; }
+  h2 { font-size:16px; margin:0 0 8px; }
+  .card { background:var(--card); border-radius:12px; padding:14px; margin-bottom:12px; }
+  label { display:flex; justify-content:space-between; align-items:center; gap:8px; margin:6px 0; }
+  input[type=number] { width:80px; background:#0e1118; color:var(--text); border:1px solid #2a3142; border-radius:8px; padding:6px; font-size:15px; }
+  input[type=range] { width:140px; }
+  input[type=checkbox] { width:22px; height:22px; }
+  button { width:100%; padding:14px; border:0; border-radius:10px; font-size:16px; font-weight:600; margin:6px 0; background:var(--accent); color:#0b0d12; }
+  button.sub { background:#2a3142; color:var(--text); }
+  button.danger { background:var(--bad); color:#fff; }
+  .muted { color:var(--muted); font-size:13px; }
+  .ok { color:var(--ok); } .warn { color:var(--warn); } .bad { color:var(--bad); }
+  pre { white-space:pre-wrap; word-break:break-all; font-size:12px; color:var(--muted); max-height:240px; overflow:auto; }
+  #night { position:fixed; inset:0; background:#000; display:none; z-index:10; }
+  #clock { position:absolute; color:#fff; opacity:.15; font-size:20px; transition:opacity .5s; }
+  #nightBar { position:absolute; left:16px; right:16px; bottom:max(24px,env(safe-area-inset-bottom)); display:none; }
+  #nightStatus { color:var(--muted); font-size:13px; text-align:center; margin-bottom:8px; }
+  svg { width:100%; height:80px; background:#0e1118; border-radius:8px; }
+</style>
+</head>
+<body>
+<h1>睡眠テスト(検証用)</h1>
+
+<div id="setup">
+  <div class="card">
+    <h2>テスト内容</h2>
+    <label>入眠サウンドを流す <input type="checkbox" id="useSound" checked></label>
+    <label>マイクで音を記録する <input type="checkbox" id="useMic"></label>
+    <p class="muted">1晩目はサウンドのみ、2晩目以降でマイクを追加すると、どちらが原因で問題が起きたか切り分けられます。</p>
+  </div>
+
+  <div class="card">
+    <h2>サウンド設定</h2>
+    <label>基準周波数 (Hz) <input type="number" id="carrier" value="200"></label>
+    <label>うなり 開始 (Hz) <input type="number" id="beatStart" value="6" step="0.5"></label>
+    <label>うなり 終了 (Hz) <input type="number" id="beatEnd" value="2" step="0.5"></label>
+    <label>うなりの変化時間 (分) <input type="number" id="rampMin" value="30"></label>
+    <label>ビート音量 <input type="range" id="toneVol" min="0" max="100" value="35"></label>
+    <label>ピンクノイズ音量 <input type="range" id="noiseVol" min="0" max="100" value="50"></label>
+    <label>全体音量 <input type="range" id="vol" min="0" max="100" value="60"></label>
+    <label>フェードアウト開始 (分, 0=しない) <input type="number" id="fadeMin" value="45"></label>
+  </div>
+
+  <div class="card">
+    <h2>記録用</h2>
+    <label>開始時バッテリー (%) <input type="number" id="batStart" placeholder="例 80"></label>
+    <p class="muted">終了時のバッテリー残量は停止時に入力します。必ず充電しながら使ってください。</p>
+  </div>
+
+  <button id="startBtn">開始する</button>
+  <button class="sub" id="reportBtn">前回の結果を見る</button>
+</div>
+
+<div id="report" class="card" style="display:none"></div>
+
+<div id="night">
+  <div id="clock"></div>
+  <div id="nightBar">
+    <div id="nightStatus"></div>
+    <button class="danger" id="stopBtn">停止して結果を見る</button>
+    <button class="sub" id="hideBtn">暗くする</button>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const TICK_MS = 30000, SAMPLE_MS = 500;
+let db, ctx, master, oscs = [], noiseSrc, stream, analyser, micBuf;
+let wakeLock = null, running = false, session = 0;
+let tickTimer, sampleTimer, clockTimer, barTimer;
+let acc = { n:0, sum:0, max:0, loud:0 }, baselineDb = -60;
+
+// ---- IndexedDB(端末内保存) ----
+function openDB() {
+  return new Promise((res, rej) => {
+    const r = indexedDB.open('sleeptest', 1);
+    r.onupgradeneeded = () => r.result.createObjectStore('log', { autoIncrement:true });
+    r.onsuccess = () => res(r.result);
+    r.onerror = () => rej(r.error);
+  });
+}
+function addLog(rec) {
+  return new Promise(res => {
+    try {
+      const tx = db.transaction('log', 'readwrite');
+      tx.objectStore('log').add(rec);
+      tx.oncomplete = res; tx.onerror = res;
+    } catch (e) { res(); }
+  });
+}
+function allLogs() {
+  return new Promise(res => {
+    const out = [];
+    const req = db.transaction('log').objectStore('log').openCursor();
+    req.onsuccess = e => { const c = e.target.result; if (c) { out.push(c.value); c.continue(); } else res(out); };
+    req.onerror = () => res(out);
+  });
+}
+const logEvent = (ev, extra = {}) => addLog({ s:session, t:Date.now(), type:'ev', ev, ...extra });
+
+// ---- サウンド生成(モノーラルビート + ピンクノイズ) ----
+function buildSound() {
+  const now = ctx.currentTime;
+  const vol = +$('vol').value / 100;
+  master = ctx.createGain();
+  master.gain.setValueAtTime(0, now);
+  master.gain.linearRampToValueAtTime(vol, now + 10);
+  const fadeMin = +$('fadeMin').value;
+  if (fadeMin > 0) {
+    master.gain.setValueAtTime(vol, now + fadeMin * 60);
+    master.gain.linearRampToValueAtTime(0, now + fadeMin * 60 + 300);
+  }
+  master.connect(ctx.destination);
+
+  const carrier = +$('carrier').value, b0 = +$('beatStart').value, b1 = +$('beatEnd').value;
+  const rampSec = Math.max(1, +$('rampMin').value * 60);
+  const toneGain = ctx.createGain();
+  toneGain.gain.value = 0.5 * (+$('toneVol').value / 100);
+  toneGain.connect(master);
+  const o1 = ctx.createOscillator();
+  o1.frequency.value = carrier;
+  const o2 = ctx.createOscillator();
+  o2.frequency.setValueAtTime(carrier + b0, now);
+  o2.frequency.linearRampToValueAtTime(carrier + b1, now + rampSec);
+  o1.connect(toneGain); o2.connect(toneGain);
+  o1.start(); o2.start();
+  oscs = [o1, o2];
+
+  const len = ctx.sampleRate * 30;
+  const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+  const d = buf.getChannelData(0);
+  let p0=0,p1=0,p2=0,p3=0,p4=0,p5=0,p6=0;
+  for (let i = 0; i < len; i++) {
+    const w = Math.random() * 2 - 1;
+    p0 = 0.99886*p0 + w*0.0555179; p1 = 0.99332*p1 + w*0.0750759;
+    p2 = 0.96900*p2 + w*0.1538520; p3 = 0.86650*p3 + w*0.3104856;
+    p4 = 0.55000*p4 + w*0.5329522; p5 = -0.7616*p5 - w*0.0168980;
+    d[i] = (p0+p1+p2+p3+p4+p5+p6 + w*0.5362) * 0.11;
+    p6 = w * 0.115926;
+  }
+  noiseSrc = ctx.createBufferSource();
+  noiseSrc.buffer = buf; noiseSrc.loop = true;
+  const nGain = ctx.createGain();
+  nGain.gain.value = +$('noiseVol').value / 100;
+  noiseSrc.connect(nGain); nGain.connect(master);
+  noiseSrc.start();
+}
+
+// ---- マイク(音量の記録のみ。録音データは保存しない) ----
+async function startMic() {
+  stream = await navigator.mediaDevices.getUserMedia({
+    audio: { echoCancellation:true, noiseSuppression:false, autoGainControl:false }
+  });
+  const src = ctx.createMediaStreamSource(stream);
+  analyser = ctx.createAnalyser();
+  analyser.fftSize = 2048;
+  micBuf = new Float32Array(analyser.fftSize);
+  src.connect(analyser);
+}
+function sample() {
+  if (!analyser) return;
+  analyser.getFloatTimeDomainData(micBuf);
+  let s = 0;
+  for (let i = 0; i < micBuf.length; i++) s += micBuf[i] * micBuf[i];
+  const rms = Math.sqrt(s / micBuf.length);
+  const db = 20 * Math.log10(rms + 1e-9);
+  acc.n++; acc.sum += db; acc.max = Math.max(acc.max, db);
+  if (db > baselineDb + 15) acc.loud++;
+  else baselineDb = baselineDb * 0.995 + db * 0.005;
+}
+
+// ---- 画面点灯 ----
+async function requestWake() {
+  if (!('wakeLock' in navigator)) { logEvent('wake-unsupported'); return; }
+  try {
+    wakeLock = await navigator.wakeLock.request('screen');
+    logEvent('wake-acquired');
+    wakeLock.addEventListener('release', () => logEvent('wake-released'));
+  } catch (e) { logEvent('wake-error', { msg: e.name + ': ' + e.message }); }
+}
+document.addEventListener('visibilitychange', async () => {
+  if (!running) return;
+  logEvent('vis-' + document.visibilityState);
+  if (document.visibilityState === 'visible') {
+    if (!wakeLock || wakeLock.released) await requestWake();
+    if (ctx && ctx.state !== 'running') { try { await ctx.resume(); } catch (e) {} }
+  }
+});
+
+// ---- 定期記録(30秒ごと。間隔が空いていればJSが止まっていた証拠) ----
+function tick() {
+  const rec = {
+    s: session, t: Date.now(), type: 'tick',
+    vis: document.visibilityState,
+    wake: !!(wakeLock && !wakeLock.released),
+    ctx: ctx ? ctx.state : null,
+    ct: ctx ? Math.round(ctx.currentTime * 10) / 10 : null,
+    micAvg: acc.n ? Math.round(acc.sum / acc.n) : null,
+    micMax: acc.n ? Math.round(acc.max) : null,
+    loud: acc.loud
+  };
+  acc = { n:0, sum:0, max:-120, loud:0 };
+  addLog(rec);
+  $('nightStatus').textContent =
+    `画面点灯: ${rec.wake ? 'ON' : 'OFF'} / 音声: ${rec.ctx}` + (rec.micAvg !== null ? ` / マイク: ${rec.micAvg}dB` : '');
+}
+
+// ---- 夜間の黒画面 ----
+function moveClock() {
+  const c = $('clock'), d = new Date();
+  c.textContent = d.getHours().toString().padStart(2,'0') + ':' + d.getMinutes().toString().padStart(2,'0');
+  c.style.left = (10 + Math.random() * 60) + '%';
+  c.style.top = (15 + Math.random() * 60) + '%';
+}
+$('night').addEventListener('click', e => {
+  if (e.target.tagName === 'BUTTON') return;
+  $('nightBar').style.display = 'block';
+  clearTimeout(barTimer);
+  barTimer = setTimeout(() => $('nightBar').style.display = 'none', 10000);
+});
+$('hideBtn').onclick = () => { $('nightBar').style.display = 'none'; };
+
+// ---- 開始・停止 ----
+$('startBtn').onclick = async () => {
+  const useSound = $('useSound').checked, useMic = $('useMic').checked;
+  session = Date.now();
+  ctx = new (window.AudioContext || window.webkitAudioContext)();
+  try {
+    if ('audioSession' in navigator) navigator.audioSession.type = useMic ? 'play-and-record' : 'playback';
+  } catch (e) {}
+  await ctx.resume();
+  ctx.onstatechange = () => logEvent('ctx-' + ctx.state);
+  await logEvent('start', {
+    useSound, useMic, batStart: $('batStart').value,
+    standalone: !!(navigator.standalone || matchMedia('(display-mode: standalone)').matches),
+    audioSession: navigator.audioSession ? navigator.audioSession.type : 'none',
+    ua: navigator.userAgent
+  });
+  if (useSound) buildSound();
+  if (useMic) {
+    try { await startMic(); } catch (e) { logEvent('mic-error', { msg: e.name + ': ' + e.message }); alert('マイクを使えませんでした: ' + e.message); }
+  }
+  await requestWake();
+  running = true;
+  acc = { n:0, sum:0, max:-120, loud:0 };
+  tick();
+  tickTimer = setInterval(tick, TICK_MS);
+  sampleTimer = setInterval(sample, SAMPLE_MS);
+  moveClock();
+  clockTimer = setInterval(moveClock, 60000);
+  $('setup').style.display = 'none';
+  $('report').style.display = 'none';
+  $('night').style.display = 'block';
+};
+
+$('stopBtn').onclick = async () => {
+  const batEnd = prompt('現在のバッテリー残量(%)を入力してください(空欄可)', '');
+  running = false;
+  clearInterval(tickTimer); clearInterval(sampleTimer); clearInterval(clockTimer);
+  tick();
+  await logEvent('stop', { batEnd });
+  try { oscs.forEach(o => o.stop()); } catch (e) {}
+  try { noiseSrc && noiseSrc.stop(); } catch (e) {}
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  if (wakeLock && !wakeLock.released) await wakeLock.release();
+  if (ctx) await ctx.close();
+  analyser = null;
+  $('night').style.display = 'none';
+  $('setup').style.display = 'block';
+  showReport();
+};
+$('reportBtn').onclick = showReport;
+
+// ---- 結果集計 ----
+const fmt = ms => { const m = Math.round(ms / 60000); return `${Math.floor(m / 60)}時間${m % 60}分`; };
+const hm = t => new Date(t).toLocaleTimeString('ja-JP', { hour:'2-digit', minute:'2-digit' });
+
+async function showReport() {
+  const logs = await allLogs();
+  const box = $('report');
+  box.style.display = 'block';
+  if (!logs.length) { box.innerHTML = '<p>まだ記録がありません。</p>'; return; }
+  const last = Math.max(...logs.map(l => l.s));
+  const L = logs.filter(l => l.s === last).sort((a, b) => a.t - b.t);
+  const ticks = L.filter(l => l.type === 'tick');
+  const evs = L.filter(l => l.type === 'ev');
+  const st = evs.find(e => e.ev === 'start') || {};
+  const sp = evs.find(e => e.ev === 'stop') || {};
+  const t0 = L[0].t, t1 = L[L.length - 1].t;
+
+  let maxGap = 0, gaps = [], stalls = 0, prev = null;
+  for (const k of ticks) {
+    if (prev) {
+      const g = k.t - prev.t;
+      if (g > TICK_MS * 3) gaps.push(`${hm(prev.t)}〜${hm(k.t)}(${fmt(g)})`);
+      maxGap = Math.max(maxGap, g);
+      if (st.useSound && k.ct !== null && prev.ct !== null && (k.ct - prev.ct) < 0.5 * g / 1000) stalls++;
+    }
+    prev = k;
+  }
+  const wakeRate = ticks.length ? Math.round(100 * ticks.filter(k => k.wake).length / ticks.length) : 0;
+  const ctxRate = ticks.length ? Math.round(100 * ticks.filter(k => k.ctx === 'running').length / ticks.length) : 0;
+  const cls = v => v >= 98 ? 'ok' : v >= 80 ? 'warn' : 'bad';
+
+  let micHtml = '';
+  const mt = ticks.filter(k => k.micMax !== null);
+  if (mt.length > 1) {
+    const vals = mt.map(k => Math.max(-90, k.micMax));
+    const lo = Math.min(...vals), hi = Math.max(...vals, lo + 1);
+    const pts = vals.map((v, i) => `${(i / (vals.length - 1) * 300).toFixed(1)},${(78 - (v - lo) / (hi - lo) * 74).toFixed(1)}`).join(' ');
+    const loudTotal = mt.reduce((a, k) => a + (k.loud || 0), 0);
+    micHtml = `<h2>マイク(30秒ごとの最大音量)</h2>
+      <svg viewBox="0 0 300 80" preserveAspectRatio="none"><polyline points="${pts}" fill="none" stroke="#7aa2ff" stroke-width="1.5"/></svg>
+      <p class="muted">範囲 ${lo}〜${hi} dBFS / 大きな音の検出 ${loudTotal}回(0.5秒単位)</p>`;
+  }
+
+  const evList = evs.filter(e => !['start', 'stop'].includes(e.ev))
+    .map(e => `${hm(e.t)} ${e.ev}${e.msg ? ' (' + e.msg + ')' : ''}`).join('\n') || 'なし';
+
+  box.innerHTML = `
+    <h2>前回の結果(${new Date(t0).toLocaleDateString('ja-JP')})</h2>
+    <p>${hm(t0)}〜${hm(t1)}(${fmt(t1 - t0)})<br>
+    モード: ${st.useSound ? 'サウンド' : ''}${st.useSound && st.useMic ? '+' : ''}${st.useMic ? 'マイク' : ''} /
+    ${st.standalone ? 'ホーム画面版' : 'Safariタブ'}<br>
+    バッテリー: ${st.batStart || '?'}% → ${sp.batEnd || '?'}%</p>
+    <p>画面点灯の維持: <b class="${cls(wakeRate)}">${wakeRate}%</b><br>
+    音声エンジン稼働: <b class="${cls(ctxRate)}">${ctxRate}%</b><br>
+    ${st.useSound ? `音声の停滞: <b class="${stalls ? 'bad' : 'ok'}">${stalls}回</b><br>` : ''}
+    記録の最大間隔: <b class="${maxGap > TICK_MS * 3 ? 'bad' : 'ok'}">${Math.round(maxGap / 1000)}秒</b>(30秒なら正常)</p>
+    ${gaps.length ? `<p class="bad">記録が途切れた時間帯:<br>${gaps.join('<br>')}</p>` : ''}
+    ${micHtml}
+    <h2>イベント</h2><pre>${evList}</pre>
+    <button class="sub" id="exportBtn">全記録を書き出す(JSON)</button>
+    <button class="sub" id="clearBtn">全記録を削除</button>`;
+
+  $('exportBtn').onclick = async () => {
+    const all = await allLogs();
+    const file = new File([JSON.stringify(all, null, 1)], `sleeptest-${last}.json`, { type:'application/json' });
+    if (navigator.canShare && navigator.canShare({ files:[file] })) {
+      try { await navigator.share({ files:[file] }); return; } catch (e) {}
+    }
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(file); a.download = file.name; a.click();
+  };
+  $('clearBtn').onclick = async () => {
+    if (!confirm('全記録を削除しますか?')) return;
+    db.transaction('log', 'readwrite').objectStore('log').clear().onsuccess = () => { box.innerHTML = '<p>削除しました。</p>'; };
+  };
+  box.scrollIntoView({ behavior:'smooth' });
+}
+
+openDB().then(d => db = d).catch(e => alert('記録用の保存領域を開けません: ' + e.message));
+</script>
+</body>
+</html>
